@@ -16,9 +16,10 @@ The backend is built with FastAPI and PostgreSQL and provides authentication, CV
 - Password Reset (Request + Confirm)
 
 ### CV Management
-- Upload CVs
-- Parse PDF and DOCX files
-- Store CV metadata
+- Upload CVs (PDF/DOCX) to Supabase Storage, scoped to the authenticated user
+- List, retrieve, and delete a user's own CVs
+- Store CV metadata in PostgreSQL
+- All CV endpoints require a valid JWT (`Authorization: Bearer <token>`)
 
 ### ATS Compatibility Analysis
 - Compare CVs against job descriptions
@@ -58,7 +59,7 @@ The backend is built with FastAPI and PostgreSQL and provides authentication, CV
 ### Authentication
 
 - JWT (python-jose)
-- Passlib (Bcrypt) — see [Known Issues](#known-issues--troubleshooting) for a required version pin
+- Passlib (Bcrypt), pinned to `bcrypt==4.0.1`
 
 ### NLP & ATS Analysis
 
@@ -161,7 +162,26 @@ source myenv/bin/activate
 pip install -r requirements.txt
 ```
 
-> **Note:** `requirements.txt` pins `bcrypt==4.0.1`. This is required — see [Known Issues](#known-issues--troubleshooting) below before changing it.
+> **Note:** `requirements.txt` pins `bcrypt==4.0.1`.
+
+---
+
+### Apply Database Migrations
+
+After installing dependencies and setting up `.env`, sync the database schema with the models:
+
+```bash
+alembic upgrade head
+```
+
+Whenever a model under `app/models/` changes (new column, new table, etc.), generate and apply a new migration rather than editing the database by hand:
+
+```bash
+alembic revision --autogenerate -m "describe the change"
+alembic upgrade head
+```
+
+Skipping this step can cause `UndefinedColumn` errors at runtime if the live table falls out of sync with the models.
 
 ---
 
@@ -334,46 +354,6 @@ Returns `400 Bad Request` if the reset token is invalid or expired.
 
 ## Authentication Testing
 
-### Via curl
-
-1. Start the server:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-2. Register a user:
-
-```bash
-curl -X POST http://127.0.0.1:8000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"full_name":"John Doe","email":"johndoe@example.com","password":"Password123"}'
-```
-
-3. Login and capture the token:
-
-```bash
-curl -X POST http://127.0.0.1:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"johndoe@example.com","password":"Password123"}'
-```
-
-4. Request a password reset token:
-
-```bash
-curl -X POST http://127.0.0.1:8000/auth/password-reset/request \
-  -H "Content-Type: application/json" \
-  -d '{"email":"johndoe@example.com"}'
-```
-
-5. Confirm a new password using the returned reset token:
-
-```bash
-curl -X POST http://127.0.0.1:8000/auth/password-reset/confirm \
-  -H "Content-Type: application/json" \
-  -d '{"reset_token":"<jwt>","new_password":"NewPassword456"}'
-```
-
 ### Via Postman
 
 Create a collection called **TechCareerFit Auth** with a collection variable `base_url = http://127.0.0.1:8000`, then add requests using `{{base_url}}/auth/...`.
@@ -412,12 +392,72 @@ pm.collectionVariables.set("access_token", pm.response.json().access_token);
 
 ### CV
 
-#### GET /cv/
+All `/cv/*` endpoints require a valid access token: `Authorization: Bearer <token>`. Results are scoped to the authenticated user — you can only see, fetch, or delete your own CVs.
+
+#### POST /cv/upload
+
+Multipart form-data request, field name `file` (PDF or DOCX only).
+
+Response
 
 ```json
 {
-  "message": "CV endpoint"
+  "id": "c0ae4cc7-9cab-47fc-9586-b40291a62a5d",
+  "message": "CV uploaded successfully",
+  "file_name": "Jeanette_Kgabe_CV.docx",
+  "file_url": "075facc1-b466-4fb5-a92d-e2321728ac27.docx"
 }
+```
+
+Returns `400 Bad Request` for a non-PDF/DOCX file, `401 Unauthorized` without a valid token.
+
+---
+
+#### GET /cv/
+
+Response: array of the authenticated user's CVs.
+
+---
+
+#### GET /cv/{cv_id}
+
+Response: a single CV's details. Returns `404 Not Found` if the CV doesn't exist or doesn't belong to the authenticated user.
+
+---
+
+#### DELETE /cv/{cv_id}
+
+Response
+
+```json
+{
+  "message": "CV deleted successfully"
+}
+```
+
+Removes the file from Supabase Storage and the row from the database. Returns `404 Not Found` if the CV doesn't exist or doesn't belong to the authenticated user.
+
+---
+
+### CV Testing (Postman)
+
+Prerequisite: log in via `/auth/login` and save `access_token` as a collection variable (see Authentication Testing above).
+
+| # | Method | Endpoint | Auth | Body | Expected |
+|---|--------|----------|------|------|----------|
+| 1 | POST | `/cv/upload` | Bearer `{{access_token}}` | form-data, key `file` (type **File**), pick a `.pdf`/`.docx` | `200` — id, file_name, file_url |
+| 1b | POST | `/cv/upload` | Bearer `{{access_token}}` | form-data, `.jpg` | `400` — invalid extension |
+| 1c | POST | `/cv/upload` | none | same `.pdf` | `401` — unauthorized |
+| 2 | GET | `/cv/` | Bearer `{{access_token}}` | — | `200` — array of your CVs |
+| 3 | GET | `/cv/{{cv_id}}` | Bearer `{{access_token}}` | — | `200` — CV details |
+| 3b | GET | `/cv/00000000-0000-0000-0000-000000000000` | Bearer `{{access_token}}` | — | `404` |
+| 4 | DELETE | `/cv/{{cv_id}}` | Bearer `{{access_token}}` | — | `200` — deleted |
+| 4b | GET | `/cv/{{cv_id}}` (repeat) | Bearer `{{access_token}}` | — | `404` — confirms deletion |
+
+On the upload request's **Tests** tab, save the returned id for reuse:
+
+```javascript
+pm.collectionVariables.set("cv_id", pm.response.json().id);
 ```
 
 ---
@@ -455,29 +495,6 @@ pm.collectionVariables.set("access_token", pm.response.json().access_token);
   "message": "Reports endpoint"
 }
 ```
-
----
-
-## Known Issues / Troubleshooting
-
-### `AttributeError: module 'bcrypt' has no attribute '__about__'` / `password cannot be longer than 72 bytes`
-
-This occurs on `/auth/register` and `/auth/login` because `passlib` (last released in 2020) checks for a `bcrypt.__about__.__version__` attribute that was removed in `bcrypt` 4.1+. Passlib's fallback version-detection routine then fails in a way that surfaces as a `ValueError` about password length, even though your actual password is nowhere near 72 bytes.
-
-**Fix:**
-
-```bash
-pip uninstall bcrypt -y
-pip install bcrypt==4.0.1
-```
-
-Make sure `requirements.txt` pins this version so it doesn't regress on a fresh install:
-
-```text
-bcrypt==4.0.1
-```
-
-Restart the server after reinstalling.
 
 ---
 
@@ -529,3 +546,11 @@ created_at
 ```
 
 ### cvs
+
+```text
+id
+user_id
+file_name
+file_url
+uploaded_at
+```
