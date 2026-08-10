@@ -2,10 +2,11 @@ import uuid
 
 from sqlalchemy import Column
 from sqlalchemy import String
+from sqlalchemy import Text
 from sqlalchemy import ForeignKey
 from sqlalchemy import DateTime
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 from app.core.database import Base
 
@@ -31,3 +32,10 @@ class CV(Base):
         DateTime(timezone=True),
         server_default=func.now()
     )
+
+    # New: parser output
+    raw_text = Column(Text, nullable=True)
+
+    parsed_data = Column(JSONB, nullable=True)
+
+    parsed_at = Column(DateTime(timezone=True), nullable=True)

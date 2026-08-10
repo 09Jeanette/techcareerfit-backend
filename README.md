@@ -554,3 +554,163 @@ file_name
 file_url
 uploaded_at
 ```
+
+
+### Parse CV
+
+#### POST /cv/{cv_id}/parse
+
+Parses an uploaded PDF or DOCX CV and extracts its textual content.
+
+The endpoint:
+
+- Downloads the file from Supabase Storage
+- Detects whether the file is a PDF or DOCX
+- Extracts text from the document
+- Stores the extracted text in the `parsed_text` column of the `cvs` table
+- Returns parsing statistics
+
+**Authentication Required**
+
+```http
+Authorization: Bearer <token>
+```
+
+**Request**
+
+```http
+POST /cv/{cv_id}/parse
+```
+
+Example:
+
+```http
+POST /cv/31b2dd10-ed68-426f-aed0-32562746dd23/parse
+```
+
+**Response**
+
+```json
+{
+  "message": "CV parsed successfully",
+  "characters": 5420
+}
+```
+
+Where:
+
+- `message` indicates successful parsing.
+- `characters` is the total number of characters extracted from the CV.
+
+---
+
+#### GET /cv/{cv_id}/parsed
+
+Returns the parsed content stored for the CV.
+
+**Authentication Required**
+
+```http
+Authorization: Bearer <token>
+```
+
+**Request**
+
+```http
+GET /cv/{cv_id}/parsed
+```
+
+Example:
+
+```http
+GET /cv/31b2dd10-ed68-426f-aed0-32562746dd23/parsed
+```
+
+**Response**
+
+```json
+{
+  "id": "31b2dd10-ed68-426f-aed0-32562746dd23",
+  "file_name": "Jeanette_Kgabe_CV.pdf",
+  "parsed_text": "Jeanette Kgabe\nSoftware Developer\nPython\nFastAPI\nPostgreSQL..."
+}
+```
+
+---
+
+### CV Parser Testing (Postman)
+
+Prerequisites:
+
+1. Register a user
+2. Log in
+3. Upload a CV
+4. Save the returned `cv_id`
+
+| Step | Endpoint | Expected Result |
+|--------|----------|----------|
+| Upload CV | `POST /cv/upload` | CV saved successfully |
+| Parse CV | `POST /cv/{cv_id}/parse` | Text extracted and stored |
+| View Parsed Text | `GET /cv/{cv_id}/parsed` | Parsed CV text returned |
+
+---
+
+### Supported Formats
+
+The parser currently supports:
+
+```text
+PDF (.pdf)
+DOCX (.docx)
+```
+
+Files uploaded in any other format will result in:
+
+```json
+{
+  "detail": "Unsupported file type"
+}
+```
+
+---
+
+### Database Changes
+
+The `cvs` table has been extended to include:
+
+```text
+parsed_text
+```
+
+This field stores the extracted text from the uploaded CV and serves as the foundation for:
+
+- ATS Compatibility Scoring
+- Skills Gap Analysis
+- Learning Recommendations
+- Career Roadmap Generation
+
+---
+
+### Current Development Status
+
+✅ Authentication
+
+✅ Password Reset
+
+✅ JWT Authorization
+
+✅ CV Upload (Supabase Storage)
+
+✅ CV Retrieval & Deletion
+
+✅ CV Text Extraction (PDF/DOCX)
+
+🔜 ATS Engine
+
+🔜 Skills Gap Analysis
+
+🔜 Learning Recommendations
+
+🔜 Job Application Tracking
+
+🔜 PDF Report Generation
