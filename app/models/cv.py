@@ -13,11 +13,9 @@ from app.core.database import Base
 class CV(Base):
     __tablename__ = "cvs"
 
-    id = Column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4
-    )
+    id = Column(UUID(as_uuid=True),
+                primary_key=True,
+                default=uuid.uuid4)
 
     user_id = Column(
         UUID(as_uuid=True),
@@ -25,8 +23,9 @@ class CV(Base):
         nullable=False
     )
 
-    file_name = Column(String)
-    file_path = Column(String)
+    file_name = Column(String, nullable=False)
+
+    file_url = Column(String, nullable=False)
 
     uploaded_at = Column(
         DateTime(timezone=True),
