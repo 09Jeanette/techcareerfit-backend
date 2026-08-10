@@ -13,6 +13,7 @@ The backend is built with FastAPI and PostgreSQL and provides authentication, CV
 - User Login
 - JWT Authentication
 - Password Hashing with Bcrypt
+- Password Reset (Request + Confirm)
 
 ### CV Management
 - Upload CVs
@@ -56,8 +57,8 @@ The backend is built with FastAPI and PostgreSQL and provides authentication, CV
 
 ### Authentication
 
-- JWT
-- Passlib (Bcrypt)
+- JWT (python-jose)
+- Passlib (Bcrypt) — see [Known Issues](#known-issues--troubleshooting) for a required version pin
 
 ### NLP & ATS Analysis
 
@@ -160,6 +161,8 @@ source myenv/bin/activate
 pip install -r requirements.txt
 ```
 
+> **Note:** `requirements.txt` pins `bcrypt==4.0.1`. This is required — see [Known Issues](#known-issues--troubleshooting) below before changing it.
+
 ---
 
 ## Environment Variables
@@ -238,8 +241,8 @@ Request
 
 ```json
 {
-  "full_name": "Jeanette Kgabe",
-  "email": "jeanette@example.com",
+  "full_name": "John Doe",
+  "email": "johndoe@example.com",
   "password": "Password123"
 }
 ```
@@ -252,6 +255,8 @@ Response
 }
 ```
 
+Returns `400 Bad Request` if the email is already registered.
+
 ---
 
 #### POST /auth/login
@@ -260,7 +265,7 @@ Request
 
 ```json
 {
-  "email": "jeanette@example.com",
+  "email": "johndoe@example.com",
   "password": "Password123"
 }
 ```
@@ -269,8 +274,126 @@ Response
 
 ```json
 {
-  "message": "Login successful"
+  "message": "Login successful",
+  "access_token": "<jwt>",
+  "token_type": "bearer",
+  "email": "johndoe@example.com"
 }
+```
+
+Returns `401 Unauthorized` for an invalid email or password.
+
+---
+
+#### POST /auth/password-reset/request
+
+Request
+
+```json
+{
+  "email": "johndoe@example.com"
+}
+```
+
+Response
+
+```json
+{
+  "message": "Password reset token generated",
+  "reset_token": "<jwt>",
+  "note": "In production, send this token to the user by email."
+}
+```
+
+If the email does not exist, the endpoint still returns `200` with a generic message and no token, so as not to reveal which emails are registered.
+
+---
+
+#### POST /auth/password-reset/confirm
+
+Request
+
+```json
+{
+  "reset_token": "<jwt>",
+  "new_password": "NewPassword123"
+}
+```
+
+Response
+
+```json
+{
+  "message": "Password has been reset successfully"
+}
+```
+
+Returns `400 Bad Request` if the reset token is invalid or expired.
+
+---
+
+## Authentication Testing
+
+### Via curl
+
+1. Start the server:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+2. Register a user:
+
+```bash
+curl -X POST http://127.0.0.1:8000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"full_name":"John Doe","email":"johndoe@example.com","password":"Password123"}'
+```
+
+3. Login and capture the token:
+
+```bash
+curl -X POST http://127.0.0.1:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"johndoe@example.com","password":"Password123"}'
+```
+
+4. Request a password reset token:
+
+```bash
+curl -X POST http://127.0.0.1:8000/auth/password-reset/request \
+  -H "Content-Type: application/json" \
+  -d '{"email":"johndoe@example.com"}'
+```
+
+5. Confirm a new password using the returned reset token:
+
+```bash
+curl -X POST http://127.0.0.1:8000/auth/password-reset/confirm \
+  -H "Content-Type: application/json" \
+  -d '{"reset_token":"<jwt>","new_password":"NewPassword456"}'
+```
+
+### Via Postman
+
+Create a collection called **TechCareerFit Auth** with a collection variable `base_url = http://127.0.0.1:8000`, then add requests using `{{base_url}}/auth/...`.
+
+| # | Method | Endpoint | Body | Expected |
+|---|--------|----------|------|----------|
+| 1 | POST | `/auth/register` | `{"full_name":"John Doe","email":"johndoe@example.com","password":"Password123"}` | `200` — user registered |
+| 1b | POST | `/auth/register` | same as above (repeat) | `400` — email already registered |
+| 2 | POST | `/auth/login` | `{"email":"johndoe@example.com","password":"Password123"}` | `200` — `access_token` returned |
+| 2b | POST | `/auth/login` | `{"email":"johndoe@example.com","password":"WrongPassword"}` | `401` — invalid credentials |
+| 3 | POST | `/auth/password-reset/request` | `{"email":"johndoe@example.com"}` | `200` — `reset_token` returned |
+| 3b | POST | `/auth/password-reset/request` | `{"email":"notjohndoe@example.com"}` | `200` — generic message, no token |
+| 4 | POST | `/auth/password-reset/confirm` | `{"reset_token":"<paste from step 3>","new_password":"NewPassword456"}` | `200` — password reset |
+| 4b | POST | `/auth/login` | `{"email":"johndoe@example.com","password":"NewPassword456"}` | `200` — confirms new password works |
+| 4c | POST | `/auth/login` | `{"email":"johndoe@example.com","password":"Password123"}` | `401` — confirms old password no longer works |
+
+Tip: on the login request's **Tests** tab, save the token automatically for reuse in later requests:
+
+```javascript
+pm.collectionVariables.set("access_token", pm.response.json().access_token);
 ```
 
 ---
@@ -332,6 +455,29 @@ Response
   "message": "Reports endpoint"
 }
 ```
+
+---
+
+## Known Issues / Troubleshooting
+
+### `AttributeError: module 'bcrypt' has no attribute '__about__'` / `password cannot be longer than 72 bytes`
+
+This occurs on `/auth/register` and `/auth/login` because `passlib` (last released in 2020) checks for a `bcrypt.__about__.__version__` attribute that was removed in `bcrypt` 4.1+. Passlib's fallback version-detection routine then fails in a way that surfaces as a `ValueError` about password length, even though your actual password is nowhere near 72 bytes.
+
+**Fix:**
+
+```bash
+pip uninstall bcrypt -y
+pip install bcrypt==4.0.1
+```
+
+Make sure `requirements.txt` pins this version so it doesn't regress on a fresh install:
+
+```text
+bcrypt==4.0.1
+```
+
+Restart the server after reinstalling.
 
 ---
 
