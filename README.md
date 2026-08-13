@@ -691,6 +691,156 @@ This field stores the extracted text from the uploaded CV and serves as the foun
 
 ---
 
+
+# ATS Engine
+
+The **Applicant Tracking System (ATS) Engine** evaluates how well a candidate's CV matches the requirements of a specific job description.
+
+The engine uses the parsed CV content together with the selected job description to generate an **ATS compatibility score**, identify **missing skills**, and provide **recommendations** to improve the candidate's CV alignment with the position.
+
+### ATS Analysis Workflow
+
+```text
+Uploaded CV
+     │
+     ▼
+CV Text Extraction
+     │
+     ▼
+Parsed CV Content
+     │
+     ├──────────────┐
+     │              │
+     ▼              ▼
+Job Description   CV Content
+     │              │
+     └──────┬───────┘
+            ▼
+      ATS Analysis Engine
+            │
+            ▼
+    Compatibility Score
+            │
+       ┌────┴─────┐
+       ▼          ▼
+Missing Skills  Recommendations
+```
+
+### Job Descriptions
+
+#### POST /ats/jobs
+
+Creates a new job description for the authenticated user.
+
+**Request**
+
+```json
+{
+  "title": "Backend Developer",
+  "company": "TechCorp",
+  "description": "Looking for experience in Python, FastAPI, SQL, and Docker."
+}
+```
+
+**Response**
+
+The created job description is stored and can subsequently be used for CV analysis.
+
+---
+
+#### GET /ats/jobs
+
+Returns the job descriptions associated with the authenticated user.
+
+---
+
+### CV Analysis
+
+#### POST /ats/analyze
+
+Analyzes a CV against a selected job description.
+
+Both the CV and job description must already exist in the system.
+
+**Request**
+
+```json
+{
+  "cv_id": "uuid-of-cv",
+  "job_id": "uuid-of-job"
+}
+```
+
+**Analysis Output**
+
+The ATS engine returns an analysis result containing:
+
+* **ATS Compatibility Score** — indicates how closely the CV matches the selected job description.
+* **Missing Skills** — identifies skills referenced by the job description that are not sufficiently represented in the CV.
+* **Recommendations** — provides suggestions for improving the CV's alignment with the job requirements.
+
+**Example Response**
+
+```json
+{
+  "id": "uuid",
+  "cv_id": "uuid-of-cv",
+  "job_id": "uuid-of-job",
+  "score": 75,
+  "missing_skills": [
+    "Docker"
+  ],
+  "recommendations": [
+    "Consider adding or highlighting experience with: Docker"
+  ]
+}
+```
+
+### Analysis Results
+
+#### GET /ats/results
+
+Returns the ATS analysis results belonging to the authenticated user.
+
+Each result links:
+
+* The analyzed CV
+* The selected job description
+* The ATS compatibility score
+* Identified missing skills
+* Generated recommendations
+
+### Authentication
+
+All ATS endpoints require a valid JWT access token.
+
+```http
+Authorization: Bearer <token>
+```
+
+ATS data is scoped to the authenticated user to ensure that users can only access their own job descriptions and analysis results.
+
+### ATS Engine Status
+
+The ATS Engine is currently implemented and operational.
+
+```text
+CV Parsing
+    ↓
+Job Description Creation
+    ↓
+CV + Job Matching
+    ↓
+ATS Compatibility Score
+    ↓
+Missing Skills Detection
+    ↓
+Recommendations
+    ↓
+Analysis Result
+```
+
+
 ### Current Development Status
 
 ✅ Authentication
@@ -705,7 +855,7 @@ This field stores the extracted text from the uploaded CV and serves as the foun
 
 ✅ CV Text Extraction (PDF/DOCX)
 
-🔜 ATS Engine
+✅ ATS Engine
 
 🔜 Skills Gap Analysis
 
