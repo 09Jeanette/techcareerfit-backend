@@ -1,3 +1,91 @@
+ATS (Jobs & Analysis)
+
+1) Create Job
+
+-- POST `{{base_url}}/ats/jobs` — Body:
+
+```json
+{
+  "title": "Backend Developer",
+  "company": "TechCorp",
+  "description": "Experience with Python, FastAPI, PostgreSQL, Docker"
+}
+```
+
+2) Analyze
+
+-- POST `{{base_url}}/ats/analyze` — Body:
+
+```json
+{
+  "cv_id": "<uuid-of-cv>",
+  "job_id": "<uuid-of-job>"
+}
+```
+-- Response: ATS result object with `score`, `missing_skills`, `recommendations`, and `learning_resources`.
+
+Example response:
+
+```json
+{
+  "id":"...",
+  "cv_id":"...",
+  "job_id":"...",
+  "score": 65,
+  "missing_skills": ["Docker","Kubernetes"],
+  "recommendations": ["Consider adding or highlighting experience with: Docker","Consider adding or highlighting experience with: Kubernetes"],
+  "learning_resources": [
+    {"skill":"Docker","title":"Docker Get Started","provider":"Docker","url":"https://docs.docker.com/get-started/","type":"Tutorial","level":"Beginner"},
+    {"skill":"Kubernetes","title":"Kubernetes Basics","provider":"Kubernetes","url":"https://kubernetes.io/docs/tutorials/kubernetes-basics/","type":"Tutorial","level":"Intermediate"}
+  ]
+}
+```
+
+Report guidance:
+
+- "What went well": skills matched between CV and job description (higher score contributors).
+- "What went wrong": missing skills detected in the job description that are not present in the CV.
+- "How to improve": `learning_resources` contains actionable course/tutorial links for each missing skill — include these on the CV and re-analyze to increase your score.
+Applications (Application Tracking)
+
+The application tracker records applications and supports richer fields to help you learn from each submission. Stored fields include:
+
+- `company`, `position`, `status` (applied/interview/offer/rejected), `applied_date`
+- `job_description` — the job description text submitted by the employer
+- `date_posted` — when the job was posted (optional)
+- `cv_id` — which uploaded CV was used for this application (helps compare outcomes across CVs)
+- `ats_score` — ATS compatibility score for the CV vs job (if you run the analyzer)
+- `comments` — notes or feedback about the application
+
+1) Create Application
+
+- POST `{{base_url}}/applications/` — Body:
+
+```json
+{
+  "company": "TechCorp",
+  "position": "Backend Engineer",
+  "status": "applied",
+  "applied_date": "2026-08-01",
+  "job_description": "Looking for Python, FastAPI, Docker",
+  "date_posted": "2026-07-20",
+  "cv_id": "<uuid-of-cv>",
+  "ats_score": 65,
+  "comments": "Applied via company portal"
+}
+```
+
+2) List Applications
+
+- GET `{{base_url}}/applications/` — returns applications for the authenticated user.
+
+3) Get / Update / Delete Application
+
+- GET `{{base_url}}/applications/{application_id}`
+- PUT `{{base_url}}/applications/{application_id}` (same body as create)
+- DELETE `{{base_url}}/applications/{application_id}`
+
+Use the `cv_id` and `ats_score` fields to compare which CVs and changes led to better ATS compatibility and interview outcomes.
 # TechCareerFit Backend
 
 TechCareerFit is a web-based ATS Compatibility, Skills Gap Analysis, and Career Development Platform designed for ICT students, graduates, and technology professionals.
@@ -864,3 +952,80 @@ Analysis Result
 🔜 Job Application Tracking
 
 🔜 PDF Report Generation
+
+
+**Quick Test Flow**
+
+Prereqs: server running (`uvicorn app.main:app --reload`) and .env configured. Use Postman or curl. Add header `Authorization: Bearer <access_token>` for protected endpoints.
+
+1) Register  
+- POST `/auth/register`  
+- Body JSON:
+  - {"full_name":"Jane Student","email":"jane@example.com","password":"Password123!"}
+
+2) Login (save token)  
+- POST `/auth/login`  
+- Body JSON:
+  - {"email":"jane@example.com","password":"Password123!"}  
+- Response contains `access_token`. In Postman save it as `access_token` and set Authorization = Bearer {{access_token}}.
+
+3) Verify user  
+- GET `/users/me` (Auth header must be set)
+
+4) Upload CV  
+- POST `/cv/upload` (Auth)  
+- Body: form-data key `file` -> pick `.pdf` or `.docx`  
+- Response returns `id` (`cv_id`) and `file_url`.
+
+5) Parse CV  
+- POST `/cv/{cv_id}/parse` (Auth)  
+- Response: `parsed_data` with `skills`, `email`, `phone`, `sections`. If PDF is scanned, OCR runs only if `pytesseract` + Tesseract are available.
+
+6) View parsed text  
+- GET `/cv/{cv_id}/parsed` (Auth)
+
+7) Create job description  
+- POST `/ats/jobs` (Auth)  
+- Body JSON:
+  - {"title":"Backend Developer","company":"TechCorp","description":"Python, FastAPI, PostgreSQL, Docker"}
+
+8) Analyze CV vs job  
+- POST `/ats/analyze` (Auth)  
+- Body JSON:
+  - {"cv_id":"<cv_id>","job_id":"<job_id>"}  
+- Response: `score`, `missing_skills`, `recommendations`. Save ATS result if needed.
+
+9) List ATS results  
+- GET `/ats/results` (Auth)
+
+10) Skills-gap analysis  
+- POST `/skills-gap/analyze` (Auth)  
+- Body JSON:
+  - {"cv_id":"<cv_id>","roadmap":"backend-development"}  
+- Response: `matched_skills`, `missing_skills`, `match_percentage`, `recommended_learning`.
+
+11) Learning recommendations (by missing skills)  
+- POST `/recommendations/learning` (Auth)  
+- Body JSON:
+  - {"missing_skills":["Docker","Kubernetes","REST APIs"]}
+
+12) Application tracking (CRUD)  
+- Create: POST `/applications/` (Auth) Body:
+  - {"company":"TechCorp","position":"Backend Engineer","status":"applied","applied_date":"2026-08-01"}  
+- List: GET `/applications/`  
+- Get: GET `/applications/{application_id}`  
+- Update: PUT `/applications/{application_id}` (same body shape)  
+- Delete: DELETE `/applications/{application_id}`
+
+13) Reports (scaffold)  
+- GET `/reports/` (Auth) — see available report endpoints later.
+
+Postman tips:
+- Use a collection variable `base_url = http://127.0.0.1:8000`.  
+- Add a Test script on the login request:
+  - `pm.collectionVariables.set("access_token", pm.response.json().access_token);`  
+- Use `Authorization: Bearer {{access_token}}` for saved requests.
+
+If you want, I can:
+- Generate a Postman collection JSON for these requests, or  
+- Add starter pytest tests for register/login, upload+parse, and ATS analyze. Which should I do next?

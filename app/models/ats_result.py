@@ -38,3 +38,6 @@ class ATSResult(Base):
     missing_skills = Column(JSONB)
 
     recommendations = Column(JSONB)
+    
+    # Learning resources mapped to missing skills (list of objects)
+    learning_resources = Column(JSONB, nullable=True)
