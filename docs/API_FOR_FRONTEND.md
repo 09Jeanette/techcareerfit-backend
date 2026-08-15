@@ -1,6 +1,6 @@
 # TechCareerFit — API Reference for Frontend
 
-Base URL: `{{base_url}}` (collection variable in postman)
+Base URL: `https://techcareerfit-backend.onrender.com` (collection variable in postman)
 
 Auth
 - POST `/auth/register` — register user. Body: `{ full_name, email, password }`
