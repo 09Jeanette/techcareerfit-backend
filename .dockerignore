@@ -1,0 +1,13 @@
+myenv/
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.Python
+.git
+.gitignore
+tests/
+docs/
+node_modules/
