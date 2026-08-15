@@ -32,6 +32,7 @@ class ATSResultResponse(BaseModel):
     score: int
     missing_skills: list[str]
     recommendations: list[str]
+    learning_resources: list[dict] | None = None
 
     class Config:
         from_attributes = True

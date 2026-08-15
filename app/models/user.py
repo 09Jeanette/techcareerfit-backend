@@ -2,6 +2,7 @@ import uuid
 
 from sqlalchemy import Column
 from sqlalchemy import String
+from sqlalchemy import Boolean
 from sqlalchemy import DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
@@ -38,6 +39,8 @@ class User(Base):
         String,
         default="job_seeker"
     )
+
+    suspended = Column(Boolean, default=False)
 
     created_at = Column(
         DateTime(timezone=True),

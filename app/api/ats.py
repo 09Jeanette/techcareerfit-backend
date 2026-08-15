@@ -14,6 +14,7 @@ from app.schemas.ats import (
     ATSResultResponse,
 )
 from app.services.ats_engine import extract_job_skills, score_cv_against_job
+from app.services.recommendation_engine import get_learning_recommendations
 
 router = APIRouter(
     prefix="/ats",
@@ -91,13 +92,18 @@ def analyze_cv(
 
     result_data = score_cv_against_job(cv_skills, job_skills)
 
+    # Map missing skills to learning resources
+    learning_resources = get_learning_recommendations(result_data.get("missing_skills", []))
+    result_data["learning_resources"] = learning_resources
+
     ats_result = ATSResult(
         user_id=current_user.id,
         cv_id=cv.id,
         job_id=job.id,
         score=result_data["score"],
         missing_skills=result_data["missing_skills"],
-        recommendations=result_data["recommendations"]
+        recommendations=result_data["recommendations"],
+        learning_resources=result_data.get("learning_resources")
     )
 
     db.add(ats_result)

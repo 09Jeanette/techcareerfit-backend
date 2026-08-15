@@ -17,12 +17,30 @@ def extract_text(file_bytes: bytes, extension: str) -> str:
 
 def _extract_pdf_text(file_bytes: bytes) -> str:
     text_parts = []
-
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
             page_text = page.extract_text()
             if page_text:
                 text_parts.append(page_text)
+
+        # If no selectable text was found, attempt an optional OCR fallback
+        if not text_parts:
+            try:
+                from PIL import Image
+                import pytesseract
+
+                for page in pdf.pages:
+                    try:
+                        pil_image = page.to_image(resolution=300).original
+                        ocr_text = pytesseract.image_to_string(pil_image)
+                        if ocr_text and ocr_text.strip():
+                            text_parts.append(ocr_text)
+                    except Exception:
+                        # If a single page fails OCR, continue with others
+                        continue
+            except Exception:
+                # pytesseract or PIL not installed / available — skip OCR
+                pass
 
     return "\n".join(text_parts)
 
