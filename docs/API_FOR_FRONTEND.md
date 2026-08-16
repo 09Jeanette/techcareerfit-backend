@@ -4,7 +4,10 @@ Base URL: `` (collection variable in postman)
 
 Auth
 - POST `/auth/register` — register user. Body: `{ full_name, email, password }`
-- POST `/auth/login` — login. Body: `{ email, password }`. Response contains `access_token`. Set `Authorization: Bearer {{access_token}}` for protected endpoints.
+- POST `/auth/login` — login. Body: `{ email, password }`. Response contains `access_token`, `token_type`, and `email`. It does not include the full user object, so the frontend should fetch the current user after login to read the role.
+- GET `/users/me` — get the authenticated user's profile. Requires `Authorization: Bearer {{access_token}}`. Response: `{ id, full_name, email, role, created_at }`. `role` is the field the frontend should use for admin checks, for example `role === 'admin'`.
+ - POST `/auth/password-reset/request` — request password reset. Body: `{ email }`. Response (dev): `{ message, reset_token }`. Note: in production the reset token should be emailed to the user; do not expose tokens to the frontend UI.
+ - POST `/auth/password-reset/confirm` — confirm password reset. Body: `{ reset_token, new_password }`. Response: `{ message }` on success.
 
 CV
 - POST `/cv/upload` — multipart form-data `file` (PDF/DOCX). Returns `id` and `file_url`.
@@ -37,7 +40,13 @@ Admin (requires `role='admin'`)
 
 Notes for frontend
 - Use `{{access_token}}` collection variable after login for Authorization headers.
+- After login, call `GET /users/me` and read `response.role` from the profile payload. Do not expect the role to be returned by `/auth/login`.
+- Typical role logic: `const isAdmin = user?.role === 'admin';`
 - File uploads use multipart form-data; field name is `file`.
 - `learning_resources` in ATS analyze is an array of objects: `{ skill, title, provider, url, type, level }`.
+
+Password reset notes
+- The `/auth/password-reset/request` endpoint will generate a short-lived `reset_token`. In development the token is returned in the response for testing; in production, send the token via email and accept only the `reset_token` plus `new_password` at `/auth/password-reset/confirm`.
+- The frontend flow should be: collect user's email -> call `password-reset/request` -> prompt user to check email for token/link -> submit token + new password to `password-reset/confirm`.
 
 See the included Postman collection: `docs/postman_collection.json`.

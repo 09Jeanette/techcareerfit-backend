@@ -1,4 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from collections import Counter
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, Path, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -19,6 +23,53 @@ import io
 from app.schemas.auth import UserRegister
 
 
+class ApplicationStatusUpdate(BaseModel):
+    status: str
+
+
+def build_monthly_trend_from_dates(dates, months=6):
+    month_counts = Counter()
+    for value in dates:
+        if value is None:
+            continue
+        month_counts[value.strftime("%Y-%m")] += 1
+
+    current_month = date.today().replace(day=1)
+    trend = []
+    for offset in range(months - 1, -1, -1):
+        month_cursor = current_month
+        if offset > 0:
+            year = current_month.year
+            month = current_month.month - offset
+            while month <= 0:
+                month += 12
+                year -= 1
+            while month > 12:
+                month -= 12
+                year += 1
+            month_cursor = date(year, month, 1)
+        label = month_cursor.strftime("%Y-%m")
+        trend.append({
+            "label": label,
+            "value": month_counts.get(label, 0)
+        })
+
+    return trend
+
+
+def build_distribution_from_values(values, buckets):
+    counts = {label: 0 for label in buckets}
+    for value in values:
+        if value is None:
+            continue
+        for label, range_tuple in buckets.items():
+            lower, upper = range_tuple
+            if value >= lower and value <= upper:
+                counts[label] += 1
+                break
+    return [{"label": label, "value": count} for label, count in counts.items()]
+
+
 router = APIRouter(
     prefix="/admin",
     tags=["Admin"]
@@ -34,17 +85,56 @@ def stats(current_user: User = Depends(get_current_user), db: Session = Depends(
             detail="Admin privileges required"
         )
 
-    users_count = db.query(func.count(User.id)).scalar()
-    cvs_count = db.query(func.count(CV.id)).scalar()
-    applications_count = db.query(func.count(Application.id)).scalar()
-
+    users_count = db.query(func.count(User.id)).scalar() or 0
+    cvs_count = db.query(func.count(CV.id)).scalar() or 0
+    applications_count = db.query(func.count(Application.id)).scalar() or 0
     avg_ats_score = db.query(func.avg(ATSResult.score)).scalar() or 0
 
+    role_counts = db.query(User.role, func.count(User.id)).group_by(User.role).all()
+    status_counts = db.query(Application.status, func.count(Application.id)).group_by(Application.status).all()
+    application_dates = [app.applied_date for app in db.query(Application).all()]
+    ats_scores = [result.score for result in db.query(ATSResult).all() if result.score is not None]
+
+    users_by_role = [{"label": role or "unknown", "value": int(value)} for role, value in role_counts]
+    applications_by_status = [{"label": status or "unknown", "value": int(value)} for status, value in status_counts]
+    applications_by_month = build_monthly_trend_from_dates(application_dates, months=6)
+    ats_score_distribution = build_distribution_from_values(
+        ats_scores,
+        {
+            "0-49": (0, 49),
+            "50-69": (50, 69),
+            "70-89": (70, 89),
+            "90-100": (90, 100),
+        }
+    )
+
+    jobs_by_company = db.query(Application.company, func.count(Application.id)).group_by(Application.company).all()
+    jobs_by_company = [{"label": company or "unknown", "value": int(value)} for company, value in jobs_by_company]
+
+    summary = {
+        "users": int(users_count),
+        "cvs": int(cvs_count),
+        "applications": int(applications_count),
+        "average_ats_score": float(avg_ats_score),
+        "admins": int(db.query(func.count(User.id)).filter(User.role == "admin").scalar() or 0),
+        "job_seekers": int(db.query(func.count(User.id)).filter(User.role == "job_seeker").scalar() or 0),
+        "suspended_users": int(db.query(func.count(User.id)).filter(User.suspended.is_(True)).scalar() or 0),
+        "active_applications": int(db.query(func.count(Application.id)).filter(Application.status.in_(["applied", "interview", "offer"])).scalar() or 0),
+    }
+
     return {
-        "users": int(users_count or 0),
-        "cvs": int(cvs_count or 0),
-        "applications": int(applications_count or 0),
-        "average_ats_score": float(avg_ats_score)
+        "users": int(users_count),
+        "cvs": int(cvs_count),
+        "applications": int(applications_count),
+        "average_ats_score": float(avg_ats_score),
+        "summary": summary,
+        "charts": {
+            "users_by_role": users_by_role,
+            "applications_by_status": applications_by_status,
+            "applications_by_month": applications_by_month,
+            "ats_score_distribution": ats_score_distribution,
+            "jobs_by_company": jobs_by_company,
+        },
     }
 
 
@@ -233,6 +323,93 @@ def delete_any_cv(cv_id: str = Path(...), current_user: User = Depends(get_curre
     db.commit()
 
     return {"message": "CV deleted"}
+
+
+@router.get("/applications/")
+def list_all_applications(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if getattr(current_user, "role", "job_seeker") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
+
+    apps = db.query(Application).all()
+    return [
+        {
+            "id": str(app.id),
+            "user_id": str(app.user_id) if app.user_id else None,
+            "company": app.company,
+            "position": app.position,
+            "status": app.status,
+            "applied_date": app.applied_date.isoformat() if app.applied_date else None,
+            "job_description": app.job_description,
+            "date_posted": app.date_posted.isoformat() if app.date_posted else None,
+            "cv_id": str(app.cv_id) if app.cv_id else None,
+            "ats_score": app.ats_score,
+            "comments": app.comments,
+            "job_link": app.job_link,
+            "application_email": app.application_email,
+            "application_subject": app.application_subject,
+        }
+        for app in apps
+    ]
+
+
+@router.get("/applications/{application_id}")
+def get_application_admin(application_id: str = Path(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if getattr(current_user, "role", "job_seeker") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
+
+    app = db.query(Application).filter(Application.id == application_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    return {
+        "id": str(app.id),
+        "user_id": str(app.user_id) if app.user_id else None,
+        "company": app.company,
+        "position": app.position,
+        "status": app.status,
+        "applied_date": app.applied_date.isoformat() if app.applied_date else None,
+        "job_description": app.job_description,
+        "date_posted": app.date_posted.isoformat() if app.date_posted else None,
+        "cv_id": str(app.cv_id) if app.cv_id else None,
+        "ats_score": app.ats_score,
+        "comments": app.comments,
+        "job_link": app.job_link,
+        "application_email": app.application_email,
+        "application_subject": app.application_subject,
+    }
+
+
+@router.patch("/applications/{application_id}/status")
+def update_application_status(application_id: str = Path(...), payload: ApplicationStatusUpdate = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if getattr(current_user, "role", "job_seeker") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
+
+    if payload is None:
+        raise HTTPException(status_code=400, detail="Status payload is required")
+
+    app = db.query(Application).filter(Application.id == application_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    app.status = payload.status
+    db.commit()
+    db.refresh(app)
+
+    return {"message": "Application status updated", "status": app.status}
+
+
+@router.delete("/applications/{application_id}")
+def delete_application_admin(application_id: str = Path(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if getattr(current_user, "role", "job_seeker") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
+
+    app = db.query(Application).filter(Application.id == application_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    db.delete(app)
+    db.commit()
+    return {"message": "Application deleted"}
 
 
 @router.get("/reports/")
